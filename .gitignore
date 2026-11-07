@@ -1,0 +1,17 @@
+# --- Secrets: never commit these ---
+# .env holds your Spotify Client ID and Client Secret.
+.env
+# .spotify_cache holds your login token (it works like a password).
+.spotify_cache
+
+# --- Generated files: rebuilt automatically, no need to save them ---
+# The virtual environment uv creates (all installed libraries live here).
+.venv/
+# Python's compiled-code cache.
+__pycache__/
+# Log files written by the server.
+*.log
+# pytest's cache.
+.pytest_cache/
+# Scratch notes Claude keeps while building (progress ledger).
+.superpowers/
