@@ -18,7 +18,7 @@ import logging
 from mcp.server.mcpserver import MCPServer
 
 from spotify_client import PROJECT_DIR
-from tools import library, playback
+from tools import library, playback, playlists
 
 # Send log messages to spotify_mcp.log in the project folder. If something
 # goes wrong, the full technical details are in that file.
@@ -42,6 +42,7 @@ mcp = MCPServer(
 # Each tools module adds its own tools to the server.
 playback.register(mcp)
 library.register(mcp)
+playlists.register(mcp)
 
 
 if __name__ == "__main__":

@@ -91,10 +91,18 @@ def register(mcp: MCPServer) -> None:
         """
         sp = spotify_client.get_spotify()
         results = sp.current_user_playlists(limit=clamp(limit, 1, 50))
+        my_id = sp.current_user()["id"]
 
         lines = []
         for playlist in results["items"]:
             line = playlist["name"]
+            # Say whose playlist it is: Spotify only lets this app read or
+            # change the tracks of playlists you created.
+            if playlist["owner"]["id"] == my_id:
+                line += " [yours]"
+            else:
+                owner = playlist["owner"].get("display_name") or playlist["owner"]["id"]
+                line += f" [by {owner}]"
             # Since Spotify's 2026 changes the track count is under "items".
             # It can be missing for playlists you follow but don't own.
             total = (playlist.get("items") or {}).get("total")

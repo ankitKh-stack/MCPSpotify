@@ -143,3 +143,27 @@ Also, adding a whole new file of tools took one line in `server.py`. That's the 
 - **Clamping:** forcing a number into a range. `clamp(50, 1, 10)` gives 10.
 - **Search filter:** extra syntax in a search, like `artist:"Name"` or `genre:jazz`, that narrows results.
 - **Time range:** Spotify's windows for "top" lists. `short_term` is about 4 weeks, `medium_term` about 6 months, `long_term` about a year.
+
+---
+
+## Step 4c — Playlist tools
+
+**What was built**
+- `tools/playlists.py` with 4 tools: `create_playlist`, `add_to_playlist`, `remove_from_playlist` (preview first, `confirm=true` to act), `get_playlist_tracks`.
+- `server.py` registers it: all **28 tools** from the plan now exist.
+- `get_my_playlists` now labels each playlist `[yours]` or `[by Owner]`.
+
+**Key idea**
+**APIs have rules you only find by testing.** Spotify's docs say apps can only read playlists the user *owns*. We checked your first 8 playlists: the 2 you made could be read, and all 6 made by other people returned 403. So instead of a vague "blocked" message, the tool now explains the rule, and the playlist list shows ownership up front so Claude doesn't try in the first place.
+
+**What went wrong and how it was fixed**
+- Reading "cigarettes after sex for sleep" (made by Ellie) gave the generic dev-mode 403 message. That's correct behaviour but an unclear message. Fix: `get_playlist_tracks` catches that 403 itself and says the playlist belongs to someone else.
+- The preview said "1 tracks". Fix: pick "track" or "tracks" based on the count.
+- The playlist list said "MCP test" had 0 tracks while it had 2. Asking for that playlist directly returned 2, so Spotify's list is cached and lags behind. Nothing to fix in our code.
+
+**Words you met**
+- **`try` / `except` / `raise`:** `try` runs code that might fail. `except SomeError` catches that failure and handles it. A bare `raise` inside `except` passes the error on unchanged, here to `spotify_errors`, for cases we don't handle ourselves.
+- **Owner:** the account that created a playlist. Following a playlist doesn't make you its owner.
+- **Cache:** a stored copy of data kept to answer faster. It can be briefly out of date ("stale"), like the 0-track count.
+- **`fields=`:** asks Spotify to return only certain parts of an object (just `name`), so the reply is smaller and faster.
+- **`list[str]`:** a type hint meaning "a list of strings". Claude sends `uris` as a JSON list like `["spotify:track:...", ...]`.
