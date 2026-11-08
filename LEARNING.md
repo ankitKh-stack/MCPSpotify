@@ -167,3 +167,34 @@ Also, adding a whole new file of tools took one line in `server.py`. That's the 
 - **Cache:** a stored copy of data kept to answer faster. It can be briefly out of date ("stale"), like the 0-track count.
 - **`fields=`:** asks Spotify to return only certain parts of an object (just `name`), so the reply is smaller and faster.
 - **`list[str]`:** a type hint meaning "a list of strings". Claude sends `uris` as a JSON list like `["spotify:track:...", ...]`.
+
+---
+
+## Step 5 — Automated tests and README
+
+**What was built**
+- `tests/` with 33 tests across 4 files, plus `tests/conftest.py` for the shared setup. Run them with `uv run pytest -v`. They finish in under a second.
+- `pyproject.toml` gained a `[tool.pytest.ini_options]` section so the tests can import `spotify_client` and `tools/`.
+- `README.md`: what the project is, setup in 10 steps, troubleshooting, two safety notes, and the tool list.
+
+**Key idea**
+**Test your code against a fake Spotify, not the real one.** The real Spotify is slow, needs a login and internet, and the tests would really skip your songs and edit your playlists. A *mock* (`MagicMock`) is a stand-in that accepts any call, returns whatever the test tells it to, and remembers how it was called. So a test can say: "pretend the search found nothing, run `play`, and check that `start_playback` was never called."
+
+This only worked because of a rule from the plan: every tool calls `spotify_client.get_spotify()` through the module. The `fake_sp` fixture replaces that one function, and every tool picks up the fake.
+
+**What went wrong and how it was fixed**
+- All 33 tests passed on the first run. That sounds great, but a test that has never failed might not be checking anything. Since the code was written before the tests, I *sabotaged* the code 7 times on purpose (removed the album trick, the 30-second cap, the preview, the `None` filter, the "1 track" grammar, the computer fallback and the case-insensitive match) and checked that the matching test failed each time. All 7 did, so the tests really guard those behaviours.
+- The sabotage script rewrote the files with Windows line endings (`\r\n` instead of `\n`). The code was the same, but git showed every line as changed. Fix: restored the files from the last commit with `git checkout --`.
+- No bugs were found in the tools themselves.
+
+**Words you met**
+- **Unit test:** a small automatic check of one behaviour. It runs in milliseconds and says pass or fail.
+- **pytest:** the program that finds every `test_...` function and runs it.
+- **`assert`:** "this must be true". If it isn't, the test fails and shows both values.
+- **Mock / `MagicMock`:** a fake object that stands in for a real one (here, Spotify), like a crash-test dummy standing in for a driver.
+- **`return_value` / `side_effect`:** what a mock hands back when called, or the error it raises instead.
+- **`assert_called_once_with` / `assert_not_called`:** checks on how the code used the mock.
+- **Fixture:** reusable setup that a test asks for by naming it as a parameter (`fake_sp`, `tools`, pytest's own `tmp_path` and `monkeypatch`).
+- **`monkeypatch`:** temporarily swaps something (a function, a setting) for one test, then puts the original back.
+- **Arrange-Act-Assert:** the three parts of most tests: set up, run the code, check the result.
+- **Mutation check (sabotage):** breaking the code on purpose to prove a test notices.

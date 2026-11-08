@@ -13,3 +13,9 @@ dependencies = [
 dev = [
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+# Let the tests import spotify_client.py and the tools/ package from the
+# project folder, the same way server.py does.
+pythonpath = ["."]
+testpaths = ["tests"]
