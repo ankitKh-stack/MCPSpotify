@@ -58,3 +58,34 @@ Nothing broke this step. Both error messages were tested before you created the 
 - **`Path(__file__).parent`:** "the folder this file is in". Using it means `.env` is found no matter which folder the program was started from.
 - **Exception / `raise`:** how Python signals "something went wrong, stop here". `SpotifyToolError` is our own kind, carrying a message that's safe to show you.
 - **`if __name__ == "__main__":`:** code under this line runs only when you start the file directly, not when another file imports it.
+
+---
+
+## Step 3 — First win: the MCP server and four tools
+
+**What was built**
+- `server.py`: creates the MCP server, asks `tools/playback.py` to add its tools, and runs over stdio.
+- `tools/playback.py`: `now_playing`, `play`, `pause`, `next_track`.
+- In `spotify_client.py`: `pick_device` (laptop or phone?), `get_target_device_id`, and the `spotify_errors` decorator that turns errors into friendly sentences.
+- The server is registered with Claude Code (`claude mcp add --scope user spotify ...`), and asking "What's playing?" in Claude Code returned the right song.
+
+**Key idea**
+An MCP server is a menu of tools. Claude reads each tool's name, docstring and parameters, then decides which one to call. Our code only has to *do* things and describe them clearly. Claude handles understanding what you asked for.
+
+**What went wrong and how it was fixed**
+- **Playing a single track did nothing.** Spotify accepted `start_playback(uris=[track])`, but the desktop app stayed silent. Albums, resume and skip all worked. We tested one cause at a time: three different songs all failed, so it wasn't the song. Playing the track *inside its album, starting at that song* worked every time, so `play` now does that. Side effect: the album keeps playing after the song ends.
+- **Pausing twice** made Spotify answer with a 403 error ("Restriction violated"). Our first message wrongly blamed development-mode limits, so we added a specific, accurate message.
+- **Searching for nonsense still plays something.** Spotify's search always finds a closest match. Nothing to fix.
+- **`/mcp spotify`** isn't a command in the desktop app. Seeing the `spotify` tools in a new session is the real proof it connected.
+
+**Words you met**
+- **MCP (Model Context Protocol):** a standard way for an AI app (the *client*, Claude Code) to use tools provided by a program (the *server*, ours).
+- **Tool:** one action the server offers, like `pause`. Its docstring is the description Claude reads.
+- **stdio (standard input/output):** the two text channels every program has, the ones behind `input()` and `print()`. Claude Code and our server send messages to each other through them. That's why the server must **never** `print()`: stray text would corrupt the conversation. Logs go to `spotify_mcp.log` instead.
+- **Decorator (`@something`):** a function that wraps another function to add behaviour. `@mcp.tool()` means "offer this as a tool", and `@spotify_errors` means "turn errors into friendly replies". They apply from the bottom up.
+- **`functools.wraps`:** makes the wrapper keep the original function's name, docstring and parameters, so Claude still sees them.
+- **The `register(mcp)` pattern:** each tools file has a `register` function that `server.py` calls with the server. Tools files never import `server.py`, which avoids two files importing each other in a loop.
+- **Import:** `import spotify_client` loads another `.py` file so you can use what's inside it. `from tools import playback` loads a file from the `tools` package.
+- **Logging:** writing diagnostic messages to a file instead of the screen.
+- **Context (Spotify):** a collection Spotify plays through, such as an album, playlist or artist. A *context URI* names one, for example `spotify:album:...`.
+- **URI:** Spotify's address for an item, like `spotify:track:2e3Ea0o24lReQFR4FA7yXH`.

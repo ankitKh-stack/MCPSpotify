@@ -14,13 +14,21 @@ Keeping all the login details in one file means the tool files never have to
 think about passwords, tokens or settings. They just ask for a connection.
 """
 
+import functools
+import logging
 import os
 from pathlib import Path
 
 import spotipy
 from dotenv import load_dotenv
 from spotipy.cache_handler import CacheFileHandler
+from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from spotipy.oauth2 import SpotifyOAuth
+
+# A logger writes messages to the log file (set up in server.py) instead of
+# the screen. We use it to record full error details for debugging, while
+# you and Claude see only the short, friendly version.
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +168,137 @@ def get_spotify() -> spotipy.Spotify:
     # ourselves later (Task 4) and only wait for short delays.
     _spotify = spotipy.Spotify(auth_manager=auth, retries=0, status_retries=0)
     return _spotify
+
+
+# ---------------------------------------------------------------------------
+# Choosing which device to control
+# ---------------------------------------------------------------------------
+NO_DEVICE_MESSAGE = (
+    "Open Spotify on your laptop or phone and play anything once, then try again."
+)
+
+
+def pick_device(devices: list[dict]) -> dict | None:
+    """
+    Choose which Spotify device commands should go to.
+
+    The rules, in order:
+      1. A device that is currently active (playing or last used), even if
+         it's your phone. We don't steal playback away from it.
+      2. Otherwise, a computer (your laptop's Spotify app).
+      3. Otherwise, whatever device is available.
+      4. No devices at all: return None.
+
+    This function only looks at the list it's given and never talks to
+    Spotify, which makes it easy to test.
+    """
+    for device in devices:
+        if device.get("is_active"):
+            return device
+
+    for device in devices:
+        if device.get("type") == "Computer":
+            return device
+
+    if devices:
+        return devices[0]
+
+    return None
+
+
+def get_target_device_id(sp: spotipy.Spotify) -> str:
+    """Ask Spotify for your devices and return the ID of the one to control."""
+    devices = sp.devices()["devices"]
+    device = pick_device(devices)
+    if device is None:
+        raise SpotifyToolError(NO_DEVICE_MESSAGE)
+    return device["id"]
+
+
+def describe_devices() -> str:
+    """A short list of your device names, used inside error messages."""
+    try:
+        devices = get_spotify().devices()["devices"]
+    except Exception:
+        # We're already reporting a different problem; don't let this one
+        # hide it.
+        return ""
+    if not devices:
+        return ""
+    names = ", ".join(f"{d['name']} ({d['type']})" for d in devices)
+    return f" Available devices: {names}."
+
+
+# ---------------------------------------------------------------------------
+# Turning errors into friendly replies
+# ---------------------------------------------------------------------------
+def spotify_errors(func):
+    """
+    A *decorator* that wraps a tool so errors become friendly messages.
+
+    A decorator is a function that takes another function and returns a new,
+    wrapped version of it. Writing @spotify_errors above a tool means:
+    "whenever this tool runs, run it inside this safety net."
+
+    Without it, a Spotify error would crash the tool call and Claude would see
+    a confusing technical error. With it, Claude gets a sentence it can pass
+    on to you, like "Open Spotify on your laptop...".
+    """
+
+    # functools.wraps copies the tool's name, docstring and parameter list
+    # onto the wrapper. This matters: the MCP library reads those to tell
+    # Claude what the tool is and which parameters it takes. Without wraps,
+    # every tool would look like a nameless function with no parameters.
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+
+        except SpotifyToolError as error:
+            # Our own errors already have a friendly message.
+            return str(error)
+
+        except SpotifyOauthError:
+            # The saved token couldn't be refreshed (for example, you removed
+            # the app's access in your Spotify account settings).
+            logger.exception("Spotify login error in %s", func.__name__)
+            return (
+                "Your Spotify login expired and couldn't be refreshed. In a "
+                "terminal in the project folder, run: "
+                "uv run python spotify_client.py"
+            )
+
+        except SpotifyException as error:
+            # An error reply from Spotify's API. Log the full details for
+            # debugging, then turn it into one short sentence.
+            logger.exception("Spotify API error in %s", func.__name__)
+            status = error.http_status
+            message = str(error.msg)
+
+            if status == 404 and (
+                "NO_ACTIVE_DEVICE" in message or "Device not found" in message
+            ):
+                return NO_DEVICE_MESSAGE + describe_devices()
+
+            if status == 403 and "Restriction violated" in message:
+                # Spotify says this when a player command doesn't make sense
+                # right now, such as pausing something already paused.
+                return (
+                    "Spotify refused that playback command, usually because "
+                    "it doesn't apply right now (for example, pausing when "
+                    "already paused)."
+                )
+
+            if status == 403:
+                return (
+                    "Spotify blocked this request. Some features are "
+                    "restricted for apps in development mode, so this may "
+                    "not be a bug."
+                )
+
+            return f"Spotify error {status}: {message}"
+
+    return wrapper
 
 
 def login() -> None:
