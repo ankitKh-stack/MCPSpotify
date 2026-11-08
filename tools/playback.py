@@ -155,3 +155,151 @@ def register(mcp: MCPServer) -> None:
         device_id = spotify_client.get_target_device_id(sp)
         sp.next_track(device_id=device_id)
         return "Skipped to the next track."
+
+    @mcp.tool()
+    @spotify_errors
+    def previous_track() -> str:
+        """Go back to the previous track."""
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        sp.previous_track(device_id=device_id)
+        return "Went back to the previous track."
+
+    @mcp.tool()
+    @spotify_errors
+    def set_volume(percent: int) -> str:
+        """Set the playback volume, from 0 (silent) to 100 (loudest)."""
+        # Check the input *before* contacting Spotify, so a bad value gets a
+        # clear answer instead of a confusing error from the API.
+        if percent < 0 or percent > 100:
+            return "Volume must be between 0 and 100."
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        sp.volume(percent, device_id=device_id)
+        return f"Volume set to {percent}%."
+
+    @mcp.tool()
+    @spotify_errors
+    def list_devices() -> str:
+        """
+        List the devices Spotify can play on (laptop, phone, speakers), with
+        their type and volume, marking the one that's currently active.
+        """
+        sp = spotify_client.get_spotify()
+        devices = sp.devices()["devices"]
+        if not devices:
+            return spotify_client.NO_DEVICE_MESSAGE
+
+        lines = []
+        for device in devices:
+            line = f"- {device['name']} ({device['type']})"
+            if device.get("volume_percent") is not None:
+                line += f", volume {device['volume_percent']}%"
+            if device.get("is_active"):
+                line += " ← active"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @spotify_errors
+    def transfer_playback(device: str) -> str:
+        """
+        Move playback to another device, e.g. from the laptop to the phone.
+
+        device: the device's name (as shown by list_devices; capital letters
+        don't matter) or its ID. Call list_devices first if you're not sure
+        of the exact name.
+        """
+        sp = spotify_client.get_spotify()
+        devices = sp.devices()["devices"]
+
+        # Find the device whose ID matches exactly, or whose full name
+        # matches ignoring capitals. casefold() is a stronger lower() that
+        # also handles letters from other languages.
+        target = None
+        for candidate in devices:
+            if candidate["id"] == device or (
+                candidate["name"].casefold() == device.casefold()
+            ):
+                target = candidate
+                break
+
+        if target is None:
+            names = ", ".join(d["name"] for d in devices) or "none"
+            return f"No device called '{device}'. Available: {names}"
+
+        # force_play=True keeps the music playing on the new device.
+        sp.transfer_playback(target["id"], force_play=True)
+        return f"Moved playback to {target['name']}."
+
+    @mcp.tool()
+    @spotify_errors
+    def shuffle(on: bool) -> str:
+        """Turn shuffle on (true) or off (false)."""
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        sp.shuffle(on, device_id=device_id)
+        return "Shuffle is on." if on else "Shuffle is off."
+
+    @mcp.tool()
+    @spotify_errors
+    def repeat(mode: str) -> str:
+        """
+        Set repeat mode. mode must be one of:
+        - "track": repeat the current song
+        - "context": repeat the current album or playlist
+        - "off": no repeat
+        """
+        if mode not in ("track", "context", "off"):
+            return 'Repeat mode must be "track", "context" or "off".'
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        sp.repeat(mode, device_id=device_id)
+        return f"Repeat set to {mode}."
+
+    @mcp.tool()
+    @spotify_errors
+    def seek(position_seconds: int) -> str:
+        """Jump to a position in the current track, in seconds from the start."""
+        if position_seconds < 0:
+            return "Position must be 0 seconds or more."
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        # Spotify measures position in milliseconds: 1 second = 1000 ms.
+        sp.seek_track(position_seconds * 1000, device_id=device_id)
+        return f"Jumped to {format_time(position_seconds * 1000)}."
+
+    @mcp.tool()
+    @spotify_errors
+    def get_queue() -> str:
+        """Show the current track and the next tracks in the queue (up to 10)."""
+        sp = spotify_client.get_spotify()
+        queue = sp.queue()
+
+        current = queue.get("currently_playing")
+        if not current:
+            return "Nothing is playing right now."
+
+        lines = [f"Now: {spotify_client.format_track(current)}"]
+        upcoming = queue.get("queue") or []
+        if not upcoming:
+            lines.append("The queue is empty.")
+        # [:10] takes at most the first 10 items. enumerate(..., start=1)
+        # numbers them 1, 2, 3...
+        for number, item in enumerate(upcoming[:10], start=1):
+            lines.append(f"{number}. {spotify_client.format_track(item)}")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @spotify_errors
+    def add_to_queue(uri: str) -> str:
+        """
+        Add a track to the end of the play queue.
+
+        uri: the track's Spotify URI, e.g. "spotify:track:..." (get it from
+        search results).
+        """
+        sp = spotify_client.get_spotify()
+        device_id = spotify_client.get_target_device_id(sp)
+        sp.add_to_queue(uri, device_id=device_id)
+        return f"Added {uri} to the queue."

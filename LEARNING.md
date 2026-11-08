@@ -89,3 +89,30 @@ An MCP server is a menu of tools. Claude reads each tool's name, docstring and p
 - **Logging:** writing diagnostic messages to a file instead of the screen.
 - **Context (Spotify):** a collection Spotify plays through, such as an album, playlist or artist. A *context URI* names one, for example `spotify:album:...`.
 - **URI:** Spotify's address for an item, like `spotify:track:2e3Ea0o24lReQFR4FA7yXH`.
+
+---
+
+## Step 4a — The rest of the playback tools
+
+**What was built**
+- 9 more tools in `tools/playback.py`: `previous_track`, `set_volume`, `list_devices`, `transfer_playback`, `shuffle`, `repeat`, `seek`, `get_queue`, `add_to_queue`. The server now has 13 tools.
+- `format_track` in `spotify_client.py`: one line per track, ending with its URI, so Claude always has the address it needs to act on a track.
+- Rate-limit handling in the `spotify_errors` decorator: on a 429, wait and retry once, but only if Spotify asks for 30 seconds or less.
+
+**Key idea**
+**Check inputs before calling Spotify.** `set_volume(150)`, `repeat("sometimes")` and `seek(-5)` get a clear answer right away, without a round trip to Spotify and a confusing error back. And because every tool shares one decorator, a single change (the 429 retry) protected all 13 tools at once.
+
+**What went wrong and how it was fixed**
+- Nothing broke live. All 9 tools were tested on the laptop, and your volume, shuffle and repeat settings were restored afterwards. You tested moving playback to your phone and back through Claude Code.
+- A real 429 can't be produced on demand, so the retry was tested with a fake one in three cases: a short wait (retries and succeeds), a two-hour wait (doesn't wait, explains), and two in a row (gives up after one retry).
+- Added a message for phones that refuse remote volume changes (`VOLUME_CONTROL_DISALLOW`). Without it, you'd get the misleading "development mode" message.
+
+**Words you met**
+- **Rate limit / HTTP 429:** Spotify limits how many requests an app can make in a short time. Going over gets a 429 reply meaning "slow down". It's like a shop letting only so many people in at once.
+- **Header / `Retry-After`:** extra labelled information attached to a reply. `Retry-After: 5` means "try again in 5 seconds".
+- **Loop (`for attempt in (1, 2)`):** repeat a block of code. Here it allows at most two tries. `continue` jumps to the next try; `return` leaves the function completely.
+- **Input validation:** checking that a value makes sense (0–100 for volume) before using it.
+- **`casefold()`:** turns text to a standard lowercase so "My Phone" equals "my phone". It handles more languages than `lower()`.
+- **Milliseconds (ms):** thousandths of a second. Spotify measures positions in ms, so `seek` multiplies seconds by 1000.
+- **Slicing (`items[:10]`):** takes the first 10 items of a list.
+- **`enumerate`:** loops over a list and numbers the items as it goes (1, 2, 3...).

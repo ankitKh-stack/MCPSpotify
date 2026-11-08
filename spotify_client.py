@@ -17,6 +17,7 @@ think about passwords, tokens or settings. They just ask for a connection.
 import functools
 import logging
 import os
+import time
 from pathlib import Path
 
 import spotipy
@@ -230,8 +231,37 @@ def describe_devices() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Shared formatting
+# ---------------------------------------------------------------------------
+def format_track(track: dict) -> str:
+    """
+    One line describing a track, ending with its URI.
+
+    Every tool that lists tracks uses this, so Claude always gets the URI it
+    needs to act on a track later (play it, queue it, add it to a playlist).
+    """
+    artists = ", ".join(artist["name"] for artist in track["artists"])
+    return f"{track['name']} — {artists} · {track['uri']}"
+
+
+# ---------------------------------------------------------------------------
 # Turning errors into friendly replies
 # ---------------------------------------------------------------------------
+
+# The longest we're willing to wait when Spotify says "slow down". Spotify can
+# ask for hours; making a tool hang that long would be worse than an error.
+MAX_RETRY_WAIT_SECONDS = 30
+
+
+def retry_after_seconds(error: SpotifyException) -> int:
+    """Read how long Spotify asked us to wait, from the Retry-After header."""
+    try:
+        return int(error.headers.get("Retry-After", 1))
+    except (TypeError, ValueError):
+        # The header was missing or not a number: wait 1 second.
+        return 1
+
+
 def spotify_errors(func):
     """
     A *decorator* that wraps a tool so errors become friendly messages.
@@ -251,54 +281,80 @@ def spotify_errors(func):
     # every tool would look like a nameless function with no parameters.
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
+        # We allow at most two attempts: the normal one, plus one retry if
+        # Spotify says "too many requests" and asks us to wait briefly.
+        for attempt in (1, 2):
+            try:
+                return func(*args, **kwargs)
 
-        except SpotifyToolError as error:
-            # Our own errors already have a friendly message.
-            return str(error)
+            except SpotifyToolError as error:
+                # Our own errors already have a friendly message.
+                return str(error)
 
-        except SpotifyOauthError:
-            # The saved token couldn't be refreshed (for example, you removed
-            # the app's access in your Spotify account settings).
-            logger.exception("Spotify login error in %s", func.__name__)
-            return (
-                "Your Spotify login expired and couldn't be refreshed. In a "
-                "terminal in the project folder, run: "
-                "uv run python spotify_client.py"
-            )
-
-        except SpotifyException as error:
-            # An error reply from Spotify's API. Log the full details for
-            # debugging, then turn it into one short sentence.
-            logger.exception("Spotify API error in %s", func.__name__)
-            status = error.http_status
-            message = str(error.msg)
-
-            if status == 404 and (
-                "NO_ACTIVE_DEVICE" in message or "Device not found" in message
-            ):
-                return NO_DEVICE_MESSAGE + describe_devices()
-
-            if status == 403 and "Restriction violated" in message:
-                # Spotify says this when a player command doesn't make sense
-                # right now, such as pausing something already paused.
+            except SpotifyOauthError:
+                # The saved token couldn't be refreshed (for example, you
+                # removed the app's access in your Spotify account settings).
+                logger.exception("Spotify login error in %s", func.__name__)
                 return (
-                    "Spotify refused that playback command, usually because "
-                    "it doesn't apply right now (for example, pausing when "
-                    "already paused)."
+                    "Your Spotify login expired and couldn't be refreshed. In "
+                    "a terminal in the project folder, run: "
+                    "uv run python spotify_client.py"
                 )
 
-            if status == 403:
-                return (
-                    "Spotify blocked this request. Some features are "
-                    "restricted for apps in development mode, so this may "
-                    "not be a bug."
-                )
+            except SpotifyException as error:
+                if error.http_status == 429:
+                    # Rate limit: Spotify says "slow down" and tells us how
+                    # many seconds to wait in the Retry-After header.
+                    wait = retry_after_seconds(error)
+                    logger.warning(
+                        "Rate limited in %s, Retry-After=%s", func.__name__, wait
+                    )
+                    if attempt == 1 and wait <= MAX_RETRY_WAIT_SECONDS:
+                        time.sleep(wait)
+                        continue  # go round the loop again: the retry
+                    return (
+                        "Spotify is rate-limiting us; try again in "
+                        f"{wait} seconds."
+                    )
 
-            return f"Spotify error {status}: {message}"
+                return friendly_api_error(error, func.__name__)
 
     return wrapper
+
+
+def friendly_api_error(error: SpotifyException, tool_name: str) -> str:
+    """Turn an error reply from Spotify's API into one short sentence."""
+    # Log the full details for debugging, then build the short version.
+    logger.error("Spotify API error in %s: %s", tool_name, error)
+    status = error.http_status
+    message = str(error.msg)
+
+    if status == 404 and (
+        "NO_ACTIVE_DEVICE" in message or "Device not found" in message
+    ):
+        return NO_DEVICE_MESSAGE + describe_devices()
+
+    if status == 403 and "Restriction violated" in message:
+        # Spotify says this when a player command doesn't make sense
+        # right now, such as pausing something already paused.
+        return (
+            "Spotify refused that playback command, usually because "
+            "it doesn't apply right now (for example, pausing when "
+            "already paused)."
+        )
+
+    if status == 403 and "VOLUME_CONTROL_DISALLOW" in message:
+        # Some devices, especially phones, don't let other apps set volume.
+        return "This device doesn't allow volume changes from other apps."
+
+    if status == 403:
+        return (
+            "Spotify blocked this request. Some features are "
+            "restricted for apps in development mode, so this may "
+            "not be a bug."
+        )
+
+    return f"Spotify error {status}: {message}"
 
 
 def login() -> None:
