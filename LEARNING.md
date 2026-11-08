@@ -116,3 +116,30 @@ An MCP server is a menu of tools. Claude reads each tool's name, docstring and p
 - **Milliseconds (ms):** thousandths of a second. Spotify measures positions in ms, so `seek` multiplies seconds by 1000.
 - **Slicing (`items[:10]`):** takes the first 10 items of a list.
 - **`enumerate`:** loops over a list and numbers the items as it goes (1, 2, 3...).
+
+---
+
+## Step 4b — Search and library tools
+
+**What was built**
+- `tools/library.py` with 11 tools: `search`, `get_my_playlists`, `get_top_items`, `get_recently_played`, `get_saved_tracks`, `save_current_track`, `remove_saved_track`, `get_artist_tracks`, `get_album_tracks`, `follow_artist`, `get_followed_artists`.
+- One new line in `server.py`, `library.register(mcp)`. The server now has 24 tools.
+
+**Key idea**
+**Confirm before destroying.** `remove_saved_track` has a `confirm` parameter that starts as `false`. The first call only *describes* what would happen ("This will remove Around the World by Daft Punk..."). The docstring tells Claude to show you that preview and wait for your yes before calling again with `confirm=true`. We tested it: the preview changed nothing, and only the confirmed call removed the song.
+
+Also, adding a whole new file of tools took one line in `server.py`. That's the payoff of the `register(mcp)` layout you chose.
+
+**What went wrong and how it was fixed**
+- **Playlist search returned nothing for "lofi study".** Spotify said there were 203 matches, but sent several back as empty slots (`None`), probably playlists hidden from development-mode apps. Asking for 3 got 3 empty slots. Fix: always ask for 10, throw away the empty ones, then keep as many as were asked for.
+- **`get_artist_tracks` found only 5 Daft Punk songs.** The strict filter `artist:"Daft Punk"` matched only 5 tracks. Fix: search for the plain name, then keep tracks where one of the artists is a match. That gave 9 of their best-known songs.
+- Library-changing tools were tested so nothing changed for good: like a song, preview, confirm the removal, then check Liked Songs were back to how they were. Following was tested on an artist you already follow.
+
+**Words you met**
+- **Destructive action:** something that deletes or changes your data and can't be undone easily.
+- **Preview / confirm pattern:** describe the change first, act only after an explicit yes.
+- **`None`:** Python's "nothing here" value. Spotify's empty slots arrive as `None`, so code must expect and skip them.
+- **List comprehension (`[x for x in items if x]`):** a one-line way to build a new list from an old one, here keeping only the non-empty items.
+- **Clamping:** forcing a number into a range. `clamp(50, 1, 10)` gives 10.
+- **Search filter:** extra syntax in a search, like `artist:"Name"` or `genre:jazz`, that narrows results.
+- **Time range:** Spotify's windows for "top" lists. `short_term` is about 4 weeks, `medium_term` about 6 months, `long_term` about a year.
