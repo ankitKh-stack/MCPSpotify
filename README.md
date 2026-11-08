@@ -51,7 +51,7 @@ never touch your account.
 | Something else went wrong | Full error details are in `spotify_mcp.log` in the project folder. |
 | New tools don't show up after a code change | In Claude Code, run `/mcp` and reconnect the spotify server. |
 
-## Two safety notes
+## Safety note
 
 - **Don't choose "always allow" for `remove_from_playlist` or
   `remove_saved_track`.** These tools show a preview first and only act when
