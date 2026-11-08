@@ -198,3 +198,32 @@ This only worked because of a rule from the plan: every tool calls `spotify_clie
 - **`monkeypatch`:** temporarily swaps something (a function, a setting) for one test, then puts the original back.
 - **Arrange-Act-Assert:** the three parts of most tests: set up, run the code, check the result.
 - **Mutation check (sabotage):** breaking the code on purpose to prove a test notices.
+
+---
+
+## Step 6 — End-to-end in Claude Code
+
+**What was built**
+Nothing new. This step checks the whole thing the way you'll really use it: plain requests in a fresh Claude Code session, with Claude choosing the tools.
+
+**Results: all 8 checks worked**
+1. "What's playing?" showed the song, artist, progress and device.
+2. "Skip this" moved to the next song.
+3. "Turn it down to 30%" set the volume.
+4. "Move it to my phone" moved playback to the phone.
+5. "Move it back to my laptop" moved it back.
+6. "Make me a 20-song lo-fi focus playlist": Claude ran several searches (10 results each at most), then created the playlist and added the songs.
+7. "Remove the last 2 songs from that playlist": the preview came first, and nothing was removed until you said yes.
+8. With Spotify closed everywhere, "What's playing?" and "Play something" gave the "Open Spotify…" message instead of crashing.
+
+The server log (`spotify_mcp.log`) recorded no errors during the run.
+
+**Key idea**
+**Unit tests and end-to-end tests check different things.** The 33 unit tests prove each tool behaves correctly against a fake Spotify. Only a real run proves that the pieces work together: Claude reads the tool descriptions, picks the right tools, chains them (search → create → add), and respects the preview before deleting.
+
+**What went wrong and how it was fixed**
+Nothing this time. The problems that would have shown up here (silent single-track playback, empty search slots, other people's playlists) were already found and fixed while each tool was being built.
+
+**Words you met**
+- **End-to-end test:** testing the whole system from the user's side, with real services, instead of one piece at a time.
+- **Human in the loop:** a person approves each risky step. Here that's the remove preview plus choosing "allow once" in Claude Code.
